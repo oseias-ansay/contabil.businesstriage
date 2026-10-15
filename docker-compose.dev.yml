@@ -1,0 +1,17 @@
+# Postgres local para desenvolvimento:  docker compose -f docker-compose.dev.yml up -d
+#  - porta 5434 (não colide com o Postgres de desenvolvimento do Triage CRM)
+#  - mesmo script de produção cria o usuário do app SEM superusuário e SEM
+#    BYPASSRLS, para o Row Level Security valer também no desenvolvimento
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: triage_contabil
+      APP_DB_PASSWORD: senha
+    ports: ["5434:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/docker/initdb:/docker-entrypoint-initdb.d:ro
+volumes:
+  pgdata:

@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Valores padrão (Business Triage). Sobrescritos por tenant em layout.tsx */
+:root {
+  --color-primary: 15 42 68;
+  --color-primary-fg: 255 255 255;
+  --color-secondary: 20 184 166;
+  --color-secondary-fg: 255 255 255;
+  --font-sans: "Inter", "Segoe UI", Roboto, system-ui;
+}
+
+body { @apply bg-slate-50 text-slate-900 antialiased; }
+
+/* Scrollbar discreta para colunas do Kanban e listas */
+.scroll-thin::-webkit-scrollbar { width: 6px; height: 8px; }
+.scroll-thin::-webkit-scrollbar-thumb { @apply rounded-full bg-slate-300; }

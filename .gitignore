@@ -1,0 +1,7 @@
+node_modules
+.next
+.env
+data/
+tsconfig.tsbuildinfo
+*.zip
+.DS_Store

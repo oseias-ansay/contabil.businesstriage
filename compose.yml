@@ -1,0 +1,123 @@
+# ════════════════════════════════════════════════════════════════════
+#  Triage Contábil — stack Docker isolada (projeto "triage-contabil")
+# ════════════════════════════════════════════════════════════════════
+#  db      → Postgres EXCLUSIVO do Contábil, numa rede interna sem saída para a
+#            internet e sem porta publicada. Não tem relação com o Supabase,
+#            o Postgres do n8n, o da Evolution nem o do Triage CRM.
+#  app     → o Contábil. Único serviço na rede traefik-proxy (para receber tráfego).
+#  routes  → container mínimo que só carrega as rotas do Traefik dos
+#            subdomínios/domínios dos clientes (atualizadas por sync-domains.sh
+#            sem reiniciar o app).
+# ════════════════════════════════════════════════════════════════════
+name: triage-contabil
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: triage-contabil-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${PG_SUPERUSER_PASSWORD:?defina no .env}
+      POSTGRES_DB: triage_contabil
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?defina no .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/docker/initdb:/docker-entrypoint-initdb.d:ro
+    networks: [internal]
+    shm_size: 128mb
+    mem_limit: 768m
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d triage_contabil"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_ROOT_DOMAIN: ${DOMAIN}
+    image: triage-contabil:latest
+    container_name: triage-contabil-app
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    env_file: [app.env]
+    environment:
+      # Usuário do banco SEM superusuário e SEM bypass de RLS
+      DATABASE_URL: postgresql://triage_contabil:${APP_DB_PASSWORD}@db:5432/triage_contabil
+      ROOT_DOMAIN: ${DOMAIN}
+      NEXT_PUBLIC_ROOT_DOMAIN: ${DOMAIN}
+      PUBLIC_URL: https://${DOMAIN}
+    volumes:
+      - uploads:/data/uploads
+    networks: [internal, traefik-proxy]
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m
+      - /app/.next/cache:size=256m,uid=1000,gid=1000
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 1g
+    cpus: 1.5
+    pids_limit: 256
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: traefik-proxy
+      # Serviço (referenciado também pelas rotas dos clientes)
+      traefik.http.services.triagecont.loadbalancer.server.port: "3200"
+      # Middlewares do Contábil
+      traefik.http.middlewares.triagecont-https.redirectscheme.scheme: https
+      traefik.http.middlewares.triagecont-https.redirectscheme.permanent: "true"
+      traefik.http.middlewares.triagecont-headers.headers.stsSeconds: "31536000"
+      traefik.http.middlewares.triagecont-headers.headers.contentTypeNosniff: "true"
+      traefik.http.middlewares.triagecont-headers.headers.customFrameOptionsValue: SAMEORIGIN
+      traefik.http.middlewares.triagecont-headers.headers.referrerPolicy: strict-origin-when-cross-origin
+      traefik.http.middlewares.triagecont-rl.ratelimit.average: "30"
+      traefik.http.middlewares.triagecont-rl.ratelimit.burst: "80"
+      traefik.http.middlewares.triagecont-login-rl.ratelimit.average: "10"
+      traefik.http.middlewares.triagecont-login-rl.ratelimit.period: 1m
+      traefik.http.middlewares.triagecont-login-rl.ratelimit.burst: "5"
+      # Domínio principal
+      traefik.http.routers.triagecont.rule: Host(`${DOMAIN}`)
+      traefik.http.routers.triagecont.entrypoints: websecure
+      traefik.http.routers.triagecont.tls.certresolver: letsencrypt
+      traefik.http.routers.triagecont.service: triagecont
+      traefik.http.routers.triagecont.middlewares: triagecont-headers,triagecont-rl
+      traefik.http.routers.triagecont-login.rule: Host(`${DOMAIN}`) && Path(`/api/auth/login`)
+      traefik.http.routers.triagecont-login.priority: "1000"
+      traefik.http.routers.triagecont-login.entrypoints: websecure
+      traefik.http.routers.triagecont-login.tls.certresolver: letsencrypt
+      traefik.http.routers.triagecont-login.service: triagecont
+      traefik.http.routers.triagecont-login.middlewares: triagecont-headers,triagecont-login-rl
+      traefik.http.routers.triagecont-http.rule: Host(`${DOMAIN}`)
+      traefik.http.routers.triagecont-http.entrypoints: web
+      traefik.http.routers.triagecont-http.service: triagecont
+      traefik.http.routers.triagecont-http.middlewares: triagecont-https
+
+  routes:
+    image: busybox:1.36
+    container_name: triage-contabil-routes
+    restart: unless-stopped
+    command: ["sh", "-c", "trap 'exit 0' TERM; while :; do sleep 3600 & wait; done"]
+    networks: [traefik-proxy]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 16m
+    pids_limit: 8
+    # labels vêm de compose.routes.yml (gerado por deploy/docker/sync-domains.sh)
+
+networks:
+  internal:
+    name: triage-contabil-internal
+    internal: true          # sem acesso à internet; só app ↔ db
+  traefik-proxy:
+    external: true
+
+volumes:
+  pgdata:
+    name: triage-contabil-pgdata
+  uploads:
+    name: triage-contabil-uploads
