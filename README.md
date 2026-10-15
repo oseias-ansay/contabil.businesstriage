@@ -59,11 +59,28 @@ Cada empresa tem cinco abas:
 
 Papéis: operador lança e estorna; gestor também fecha e reabre meses, edita o plano de contas e lança saldos de abertura; leitor só consulta e exporta.
 
+### Fase 2 (Extratos) concluída
+
+Aba **Extratos** em cada empresa (planos com o módulo “Importação de extratos”):
+
+- **Importar** OFX (1.x e 2.x, UTF-8 ou Windows-1252) e CSV/TXT de qualquer banco: separador, colunas,
+  datas e valores no formato brasileiro são detectados sozinhos, com prévia e ajuste manual das colunas.
+- **Sem duplicar:** reimportar um período sobreposto traz só os movimentos novos.
+- **Sugestão de conta:** por **regras** (“o histórico contém estas palavras” → conta, só entradas/saídas,
+  por banco, com prioridade) e pelo **histórico** (o mesmo pagador ou fornecedor, com outro número de PIX,
+  recebe a conta usada da última vez). Classificação feita à mão nunca é sobrescrita.
+- **Lançar em lote:** cada movimento vira um lançamento (entrada: D banco / C contrapartida; saída: o
+  contrário). Um mês fechado ou uma linha sem conta não impede os demais; a tela mostra o motivo de cada recusa.
+- **Desfazer** (estorno na mesma data) e **ignorar** (ex.: transferência entre contas já lançada pelo outro extrato).
+- O **fechamento** avisa quando há movimentos do mês sem lançar.
+- O banco recusa alterar data, valor e histórico de um movimento e apagar movimento já lançado.
+
+Arquivos de exemplo para testar: `docs/exemplos/extrato-exemplo-fev2026.ofx` e `extrato-exemplo-mar2026.csv`.
+
 ## Próximas fases
 
 | Fase | Entrega |
 |---|---|
-| 2 · Extratos | importação OFX/CSV, regras de classificação, classificação em lote |
 | 3 · Integrações | eventos da Plataforma, webhook do CRM ("cliente contratado" cria a empresa), API de relatórios e `period.closed` |
 | 4 · Evolução | indicadores, comparativos, refinamentos de white-label, avaliação de Open Finance |
 
@@ -86,7 +103,7 @@ npm run dev                                       # http://localhost:3200
 ### Testes
 
 ```bash
-npm test                                   # regras do banco (24) + relatórios (8); cria e apaga tenants de teste
+npm test                                   # leitores de extrato (10) + regras do banco (24) + relatórios (8) + extratos (22)
 BASE_URL=http://localhost:3200 npm run test:api   # ponta a ponta pela API, com o servidor no ar e o seed carregado
 ```
 
@@ -121,6 +138,7 @@ triage-contabil/
     │   ├── ledger.ts            # empresas, lançamentos, estorno, períodos, fechamento, contas, abertura, balancete
     │   ├── reports.ts           # razão, DRE gerencial e balanço patrimonial
     │   ├── pdf.ts               # PDFs dos relatórios (pdfmake)
+    │   ├── bank/                # leitura de OFX/CSV, importação, regras e lançamento de extratos
     │   ├── chart-of-accounts.ts # plano de contas padrão MPE
     │   ├── money.ts             # valores em centavos (nunca float)
     │   └── tenant.ts · auth.ts · session.ts · api.ts …

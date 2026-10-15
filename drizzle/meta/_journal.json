@@ -8,6 +8,13 @@
       "when": 1792093514132,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792101503838,
+      "tag": "0001_bank_import",
+      "breakpoints": true
     }
   ]
 }

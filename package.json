@@ -16,7 +16,9 @@
     "test:db": "tsx tests/ledger-rules.test.ts",
     "test:reports": "tsx tests/reports.test.ts",
     "test:api": "tsx tests/api-smoke.test.ts",
-    "test": "tsx tests/ledger-rules.test.ts && tsx tests/reports.test.ts"
+    "test:parse": "tsx tests/bank-parse.test.ts",
+    "test:bank": "tsx tests/bank.test.ts",
+    "test": "tsx tests/bank-parse.test.ts && tsx tests/ledger-rules.test.ts && tsx tests/reports.test.ts && tsx tests/bank.test.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.4",

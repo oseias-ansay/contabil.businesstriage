@@ -5,17 +5,18 @@ import { cn } from "@/lib/utils";
 
 const TABS = [
   { href: "lancamentos", label: "Lançamentos" },
+  { href: "extratos", label: "Extratos", module: "bank" },
   { href: "relatorios", label: "Relatórios" },
   { href: "fechamento", label: "Fechamento" },
   { href: "plano-de-contas", label: "Plano de contas" },
   { href: "abertura", label: "Saldos de abertura" },
 ];
 
-export function CompanyTabs({ companyId }: { companyId: string }) {
+export function CompanyTabs({ companyId, modules }: { companyId: string; modules: string[] }) {
   const path = usePathname();
   return (
     <nav className="mt-4 flex gap-1 overflow-x-auto border-b">
-      {TABS.map((t) => {
+      {TABS.filter((t) => !("module" in t) || modules.includes(t.module as string)).map((t) => {
         const href = `/empresas/${companyId}/${t.href}`;
         const active = path.startsWith(href);
         return (

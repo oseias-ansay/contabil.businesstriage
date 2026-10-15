@@ -9,6 +9,7 @@
  * chegou a ser gravado como R$ 61.235,00 por conversão dupla).
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3200";
 let cookie = "";
@@ -87,6 +88,34 @@ async function main() {
       assert.equal(res.headers.get("content-type"), "application/pdf", q);
       assert.ok((await res.arrayBuffer()).byteLength > 5000, q);
     }
+  });
+
+  console.log("\nExtratos");
+  await test("importa o OFX de exemplo sem duplicar na segunda vez", async () => {
+    const bank = id("1.1.1.02");
+    const send = async () => {
+      const fd = new FormData();
+      fd.append("file", new Blob([readFileSync("docs/exemplos/extrato-exemplo-fev2026.ofx")]), "extrato-exemplo-fev2026.ofx");
+      fd.append("bankAccountId", bank);
+      const res = await fetch(`${BASE}/api/companies/${co}/bank/imports`, { method: "POST", body: fd, headers: { cookie } });
+      return { status: res.status, body: (await res.json()) as { new: number; duplicates: number } };
+    };
+    const a = await send();
+    assert.equal(a.status, 201, JSON.stringify(a.body));
+    const b = await send();
+    assert.equal(b.body.new, 0);
+    assert.equal(b.body.duplicates, a.body.new + a.body.duplicates);
+  });
+  await test("regra classifica e o lote lança, com resposta por movimento", async () => {
+    const r = await call(`/api/companies/${co}/bank/rules`, { json: { pattern: "tarifa servicos", direction: "OUT", accountId: id("4.4.1.02") } });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    const pend = await call<{ lines: { id: string; accountId: string | null; description: string }[] }>(`/api/companies/${co}/bank/lines?status=PENDING&q=tarifa`);
+    const ids = pend.body.lines.map((l) => l.id);
+    assert.ok(ids.length >= 2 && pend.body.lines.every((l) => l.accountId === id("4.4.1.02")));
+    const semConta = (await call<{ lines: { id: string; accountId: string | null }[] }>(`/api/companies/${co}/bank/lines?status=PENDING&q=copel`)).body.lines[0].id;
+    const post = await call<{ posted: unknown[]; failed: { error: string }[] }>(`/api/companies/${co}/bank/lines/post`, { json: { lineIds: [...ids, semConta] } });
+    assert.equal(post.body.posted.length, ids.length);
+    assert.match(post.body.failed[0].error, /Escolha a conta/);
   });
 
   console.log(`\n${passed} passaram, ${failures.length} falharam`);

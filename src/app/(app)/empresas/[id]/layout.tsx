@@ -6,6 +6,7 @@ import { ArrowLeft } from "lucide-react";
 import { withTenant } from "@/db";
 import { companies } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
+import { getCurrentTenant } from "@/lib/tenant";
 import { dmy, formatDoc } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { CompanyTabs } from "@/components/companies/company-tabs";
@@ -26,7 +27,7 @@ export default async function CompanyLayout({ children, params }: { children: Re
           {c.tradeName ? `${c.legalName} · ` : ""}{formatDoc(c.cnpj)} · escrituração desde {dmy(c.startDate)}
         </p>
       </div>
-      <CompanyTabs companyId={c.id} />
+      <CompanyTabs companyId={c.id} modules={(await getCurrentTenant())?.enabledModules ?? []} />
       <div className="mt-4">{children}</div>
     </div>
   );

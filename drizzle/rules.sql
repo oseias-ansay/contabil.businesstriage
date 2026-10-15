@@ -236,3 +236,31 @@ END $$;
 DROP TRIGGER IF EXISTS acc_period_guard ON periods;
 CREATE TRIGGER acc_period_guard BEFORE INSERT OR UPDATE ON periods
   FOR EACH ROW EXECUTE FUNCTION acc_period_guard();
+
+-- ─────────────────────────── 8. Linhas de extrato ───────────────────────────
+-- O que veio do banco não se edita: data, valor, histórico e conta bancária ficam
+-- como no arquivo. Só mudam a classificação e o status. Linha lançada só pode
+-- ser excluída junto com o tenant.
+CREATE OR REPLACE FUNCTION acc_bank_line_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    IF acc_purging() THEN RETURN OLD; END IF;
+    IF OLD.status = 'POSTED' THEN
+      RAISE EXCEPTION 'Movimento de extrato já lançado não pode ser excluído' USING ERRCODE = 'P0001',
+        HINT = 'Desfaça o lançamento (estorno) antes';
+    END IF;
+    RETURN OLD;
+  END IF;
+  IF NEW.line_date <> OLD.line_date OR NEW.amount <> OLD.amount OR NEW.description <> OLD.description
+     OR NEW.bank_account_id <> OLD.bank_account_id OR NEW.dedupe_key <> OLD.dedupe_key OR NEW.company_id <> OLD.company_id THEN
+    RAISE EXCEPTION 'Data, valor e histórico do extrato não podem ser alterados' USING ERRCODE = 'P0001';
+  END IF;
+  IF NEW.status = 'POSTED' AND NEW.entry_id IS NULL THEN
+    RAISE EXCEPTION 'Movimento lançado precisa do lançamento correspondente' USING ERRCODE = 'P0001';
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS acc_bank_line_guard ON bank_lines;
+CREATE TRIGGER acc_bank_line_guard BEFORE UPDATE OR DELETE ON bank_lines
+  FOR EACH ROW EXECUTE FUNCTION acc_bank_line_guard();

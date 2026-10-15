@@ -355,12 +355,17 @@ export async function closingChecklist(tx: Tx, companyId: string, competence: st
   const d = top.reduce((s, r) => s + r.debits, 0);
   const c = top.reduce((s, r) => s + r.credits, 0);
   const negativeCash = tb.filter((r) => r.isAnalytic && r.code.startsWith("1.1.1.") && r.closing < 0).map((r) => `${r.code} ${r.name}`);
+  const pendingBank = await tx.execute<{ n: number }>(
+    sql`select count(*)::int as n from bank_lines where company_id = ${companyId} and status = 'PENDING' and line_date between ${from} and ${to}`,
+  );
+  const pendingLines = pendingBank.rows[0]?.n ?? 0;
 
   return [
     { key: "status", label: "Mês ainda aberto", ok: current.status === "OPEN", blocking: true, detail: current.status === "CLOSED" ? "Este mês já está fechado" : undefined },
     { key: "balanced", label: "Débitos e créditos do mês conferem", ok: d === c, blocking: true, detail: d === c ? undefined : `Débitos ${fromCents(d)} ≠ créditos ${fromCents(c)}` },
     { key: "entries", label: "Há lançamentos no mês", ok: current.entries > 0, blocking: false, detail: current.entries ? `${current.entries} lançamento(s)` : "Nenhum lançamento: confirme se o mês está mesmo sem movimento" },
     { key: "earlier", label: "Meses anteriores fechados", ok: earlierOpen.length === 0, blocking: false, detail: earlierOpen.length ? `Ainda abertos: ${earlierOpen.map((m) => m.split("-").reverse().join("/")).join(", ")}` : undefined },
+    { key: "bank", label: "Extratos do mês lançados", ok: pendingLines === 0, blocking: false, detail: pendingLines ? `${pendingLines} movimento(s) de extrato ainda sem lançar` : undefined },
     { key: "cash", label: "Caixa e bancos sem saldo negativo", ok: negativeCash.length === 0, blocking: false, detail: negativeCash.length ? `Saldo negativo em: ${negativeCash.join("; ")}` : undefined },
   ];
 }

@@ -75,6 +75,8 @@ export const dreGroup = pgEnum("dre_group", [
 ]);
 export const entrySource = pgEnum("entry_source", ["MANUAL", "OPENING", "REVERSAL", "BANK_IMPORT", "PLATFORM", "CLOSING"]);
 export const periodStatus = pgEnum("period_status", ["OPEN", "CLOSED"]);
+export const bankLineStatus = pgEnum("bank_line_status", ["PENDING", "POSTED", "IGNORED"]);
+export const ruleDirection = pgEnum("rule_direction", ["ANY", "IN", "OUT"]);
 
 // Colunas reutilizadas
 const id = () => uuid().primaryKey().defaultRandom();
@@ -327,6 +329,89 @@ export const journalLines = pgTable(
   ],
 );
 
+// ───────────────────────────── EXTRATOS BANCÁRIOS ─────────────────────────────
+
+/** Arquivo de extrato importado para uma conta bancária (conta analítica do plano). */
+export const bankImports = pgTable(
+  "bank_imports",
+  {
+    id: id(),
+    tenantId: tenantRef(),
+    companyId: companyRef(),
+    bankAccountId: uuid()
+      .notNull()
+      .references(() => accounts.id, { onDelete: "no action" }),
+    fileName: text().notNull(),
+    format: text().notNull(), // OFX | CSV
+    firstDate: date(),
+    lastDate: date(),
+    linesTotal: integer().notNull().default(0), // linhas lidas do arquivo
+    linesNew: integer().notNull().default(0), // linhas novas (as demais já tinham sido importadas)
+    createdById: uuid().references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.tenantId, t.companyId, t.createdAt)],
+);
+
+/** Uma movimentação do extrato. Vira um lançamento quando classificada e lançada. */
+export const bankLines = pgTable(
+  "bank_lines",
+  {
+    id: id(),
+    tenantId: tenantRef(),
+    companyId: companyRef(),
+    importId: uuid()
+      .notNull()
+      .references(() => bankImports.id, { onDelete: "cascade" }),
+    bankAccountId: uuid()
+      .notNull()
+      .references(() => accounts.id, { onDelete: "no action" }),
+    lineDate: date().notNull(),
+    amount: numeric({ precision: 18, scale: 2 }).notNull(), // + entrada, − saída
+    description: text().notNull(),
+    normalized: text().notNull(), // histórico normalizado (busca e regras)
+    document: text(),
+    dedupeKey: text().notNull(),
+    status: bankLineStatus().notNull().default("PENDING"),
+    accountId: uuid().references(() => accounts.id, { onDelete: "no action" }), // contrapartida escolhida/sugerida
+    costCenterId: uuid().references(() => costCenters.id, { onDelete: "no action" }),
+    suggestedBy: text(), // RULE | HISTORY | USER
+    ruleId: uuid(),
+    entryId: uuid().references(() => journalEntries.id, { onDelete: "no action" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex("bank_lines_dedupe_uq").on(t.bankAccountId, t.dedupeKey),
+    index().on(t.tenantId, t.companyId, t.status, t.lineDate),
+    index().on(t.importId),
+    check("bank_lines_amount_ck", sql`amount <> 0`),
+  ],
+);
+
+/** Regra de classificação: histórico contém o texto → conta (e centro de custo). */
+export const classificationRules = pgTable(
+  "classification_rules",
+  {
+    id: id(),
+    tenantId: tenantRef(),
+    companyId: companyRef(),
+    pattern: text().notNull(), // texto normalizado procurado no histórico
+    direction: ruleDirection().notNull().default("ANY"),
+    bankAccountId: uuid().references(() => accounts.id, { onDelete: "cascade" }), // vazio = qualquer banco
+    accountId: uuid()
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    costCenterId: uuid().references(() => costCenters.id, { onDelete: "set null" }),
+    priority: integer().notNull().default(100), // menor = avaliada antes
+    isActive: boolean().notNull().default(true),
+    hits: integer().notNull().default(0),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index().on(t.tenantId, t.companyId, t.isActive), check("classification_rules_pattern_ck", sql`length(pattern) >= 3`)],
+);
+
 // ───────────────────────────── AUDITORIA ─────────────────────────────
 
 export const auditLog = pgTable(
@@ -379,3 +464,6 @@ export type CostCenter = typeof costCenters.$inferSelect;
 export type Period = typeof periods.$inferSelect;
 export type JournalEntry = typeof journalEntries.$inferSelect;
 export type JournalLine = typeof journalLines.$inferSelect;
+export type BankImport = typeof bankImports.$inferSelect;
+export type BankLine = typeof bankLines.$inferSelect;
+export type ClassificationRule = typeof classificationRules.$inferSelect;
