@@ -7,7 +7,7 @@
  * As validações daqui existem para devolver mensagens claras antes de
  * chegar ao banco, não para substituí-lo.
  */
-import { and, asc, eq, lte, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Tx } from "@/db";
 import { accounts, auditLog, companies, journalEntries, journalLines, periods } from "@/db/schema";
@@ -294,6 +294,179 @@ export async function trialBalance(tx: Tx, companyId: string, from: string, to: 
       credits: t.c,
       closing: opening + (t.d - t.c) * s,
     };
+  });
+}
+
+// ─────────────────────────── Meses e fechamento ───────────────────────────
+
+const ym = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+
+/** Meses da empresa (do início da escrituração até o mês atual ou o último lançamento). */
+export async function listPeriods(tx: Tx, companyId: string) {
+  const [co] = await tx.select().from(companies).where(eq(companies.id, companyId));
+  if (!co) throw new LedgerError("Empresa não encontrada");
+  const stats = await tx
+    .select({
+      month: sql<string>`to_char(${journalEntries.competence}, 'YYYY-MM')`,
+      entries: sql<number>`count(*)::int`,
+    })
+    .from(journalEntries)
+    .where(eq(journalEntries.companyId, companyId))
+    .groupBy(journalEntries.competence);
+  const status = await tx.select().from(periods).where(eq(periods.companyId, companyId));
+  const lastEntry = stats.map((s) => s.month).sort().pop();
+  const now = ym(new Date());
+  const end = lastEntry && lastEntry > now ? lastEntry : now;
+
+  const out: { month: string; status: "OPEN" | "CLOSED"; entries: number; closedAt: Date | null }[] = [];
+  let [y, m] = co.startDate.split("-").map(Number);
+  for (let guard = 0; guard < 240; guard++) {
+    const key = `${y}-${String(m).padStart(2, "0")}`;
+    if (key > end) break;
+    const p = status.find((s) => s.competence.startsWith(key));
+    out.push({ month: key, status: p?.status ?? "OPEN", entries: stats.find((s) => s.month === key)?.entries ?? 0, closedAt: p?.closedAt ?? null });
+    m++;
+    if (m > 12) {
+      m = 1;
+      y++;
+    }
+  }
+  return out.reverse(); // mais recente primeiro
+}
+
+export type ChecklistItem = { key: string; label: string; ok: boolean; blocking: boolean; detail?: string };
+
+/**
+ * Conferências antes de fechar o mês. Itens "blocking" impedem o fechamento;
+ * os demais são avisos que o gestor pode aceitar.
+ */
+export async function closingChecklist(tx: Tx, companyId: string, competence: string): Promise<ChecklistItem[]> {
+  const month = competence.slice(0, 7);
+  const months = await listPeriods(tx, companyId);
+  const current = months.find((p) => p.month === month);
+  if (!current) throw new LedgerError("Mês fora do período da empresa");
+  const earlierOpen = months.filter((p) => p.month < month && p.status === "OPEN" && p.entries > 0).map((p) => p.month);
+
+  const from = `${month}-01`;
+  const [y, mm] = month.split("-").map(Number);
+  const to = `${month}-${String(new Date(Date.UTC(y, mm, 0)).getUTCDate()).padStart(2, "0")}`;
+  const tb = await trialBalance(tx, companyId, from, to);
+  const top = tb.filter((r) => r.level === 1);
+  const d = top.reduce((s, r) => s + r.debits, 0);
+  const c = top.reduce((s, r) => s + r.credits, 0);
+  const negativeCash = tb.filter((r) => r.isAnalytic && r.code.startsWith("1.1.1.") && r.closing < 0).map((r) => `${r.code} ${r.name}`);
+
+  return [
+    { key: "status", label: "Mês ainda aberto", ok: current.status === "OPEN", blocking: true, detail: current.status === "CLOSED" ? "Este mês já está fechado" : undefined },
+    { key: "balanced", label: "Débitos e créditos do mês conferem", ok: d === c, blocking: true, detail: d === c ? undefined : `Débitos ${fromCents(d)} ≠ créditos ${fromCents(c)}` },
+    { key: "entries", label: "Há lançamentos no mês", ok: current.entries > 0, blocking: false, detail: current.entries ? `${current.entries} lançamento(s)` : "Nenhum lançamento: confirme se o mês está mesmo sem movimento" },
+    { key: "earlier", label: "Meses anteriores fechados", ok: earlierOpen.length === 0, blocking: false, detail: earlierOpen.length ? `Ainda abertos: ${earlierOpen.map((m) => m.split("-").reverse().join("/")).join(", ")}` : undefined },
+    { key: "cash", label: "Caixa e bancos sem saldo negativo", ok: negativeCash.length === 0, blocking: false, detail: negativeCash.length ? `Saldo negativo em: ${negativeCash.join("; ")}` : undefined },
+  ];
+}
+
+// ─────────────────────────── Plano de contas ───────────────────────────
+
+export const accountCreateSchema = z.object({
+  parentId: z.string().uuid(),
+  name: z.string().trim().min(2).max(120),
+  isAnalytic: z.boolean().default(true),
+  nature: z.enum(["DEBIT", "CREDIT"]).optional(), // padrão: a da conta-mãe
+});
+
+/** Cria subconta com o próximo código livre abaixo da conta-mãe (sintética). */
+export async function createAccount(tx: Tx, ctx: LedgerCtx, companyId: string, input: z.input<typeof accountCreateSchema>) {
+  const data = accountCreateSchema.parse(input);
+  const [parent] = await tx.select().from(accounts).where(and(eq(accounts.id, data.parentId), eq(accounts.companyId, companyId)));
+  if (!parent) throw new LedgerError("Conta-mãe não encontrada");
+  if (parent.isAnalytic) throw new LedgerError("Contas analíticas não podem ter subcontas. Escolha uma conta sintética.");
+  const siblings = await tx.select({ code: accounts.code }).from(accounts).where(eq(accounts.parentId, parent.id));
+  const last = siblings.map((s) => Number(s.code.split(".").pop())).reduce((a, b) => Math.max(a, b), 0);
+  const width = parent.level >= 3 ? 2 : 1;
+  const next = last + 1;
+  if (width === 1 && next > 9) throw new LedgerError("Limite de 9 subgrupos atingido neste nível");
+  const code = `${parent.code}.${String(next).padStart(width, "0")}`;
+  const [row] = await tx
+    .insert(accounts)
+    .values({
+      tenantId: ctx.tenantId,
+      companyId,
+      parentId: parent.id,
+      code,
+      name: data.name,
+      level: parent.level + 1,
+      type: parent.type,
+      nature: data.nature ?? parent.nature,
+      isAnalytic: data.isAnalytic,
+      balanceGroup: parent.balanceGroup,
+      dreGroup: parent.dreGroup,
+    })
+    .returning();
+  await audit(tx, ctx, { companyId, action: "account.create", entity: "account", entityId: row.id, after: { code, name: row.name } });
+  return row;
+}
+
+export const accountUpdateSchema = z.object({
+  name: z.string().trim().min(2).max(120).optional(),
+  isActive: z.boolean().optional(),
+  nature: z.enum(["DEBIT", "CREDIT"]).optional(),
+});
+
+/** Renomeia, ativa/inativa ou troca a natureza (o banco recusa natureza de conta movimentada). */
+export async function updateAccount(tx: Tx, ctx: LedgerCtx, companyId: string, accountId: string, input: z.input<typeof accountUpdateSchema>) {
+  const data = accountUpdateSchema.parse(input);
+  const [before] = await tx.select().from(accounts).where(and(eq(accounts.id, accountId), eq(accounts.companyId, companyId)));
+  if (!before) throw new LedgerError("Conta não encontrada");
+  if (data.isActive === false && !before.isAnalytic) {
+    // inativar uma sintética inativa as filhas também
+    await tx.update(accounts).set({ isActive: false }).where(and(eq(accounts.companyId, companyId), sql`${accounts.code} like ${before.code + ".%"}`));
+  }
+  const [row] = await tx.update(accounts).set(data).where(eq(accounts.id, accountId)).returning();
+  await audit(tx, ctx, { companyId, action: "account.update", entity: "account", entityId: row.id, before: { name: before.name, isActive: before.isActive, nature: before.nature }, after: data });
+  return row;
+}
+
+// ─────────────────────────── Saldos de abertura ───────────────────────────
+
+export const openingSchema = z.object({
+  entryDate: isoDate,
+  balances: z
+    .array(z.object({ accountId: z.string().uuid(), amount })) // positivo = saldo na natureza da conta
+    .min(1, "Informe ao menos um saldo"),
+});
+
+/**
+ * Gera UM lançamento de abertura (origem OPENING) com os saldos informados.
+ * A diferença entre ativo e passivo + PL vai para 2.3.9.01 (contrapartida de
+ * saldos de abertura), para o balanço fechar desde o primeiro dia.
+ */
+export async function postOpeningBalances(tx: Tx, ctx: LedgerCtx, companyId: string, input: z.input<typeof openingSchema>) {
+  const data = openingSchema.parse(input);
+  const ids = data.balances.map((b) => b.accountId);
+  const accs = await tx.select().from(accounts).where(and(eq(accounts.companyId, companyId), inArray(accounts.id, ids)));
+  const lines: { accountId: string; debit?: number; credit?: number; memo?: string }[] = [];
+  for (const b of data.balances) {
+    if (!b.amount) continue;
+    const a = accs.find((x) => x.id === b.accountId);
+    if (!a) throw new LedgerError("Conta de outra empresa no saldo de abertura");
+    if (!["ASSET", "LIABILITY", "EQUITY"].includes(a.type)) throw new LedgerError(`${a.code} ${a.name}: saldo de abertura só em contas patrimoniais`);
+    const debitSide = (a.nature === "DEBIT") === b.amount > 0;
+    const v = Math.abs(b.amount);
+    lines.push(debitSide ? { accountId: a.id, debit: v } : { accountId: a.id, credit: v });
+  }
+  if (!lines.length) throw new LedgerError("Todos os saldos estão zerados");
+  const diff = lines.reduce((s, l) => s + (l.debit ?? 0) - (l.credit ?? 0), 0);
+  if (diff !== 0) {
+    const [plug] = await tx.select().from(accounts).where(and(eq(accounts.companyId, companyId), eq(accounts.code, "2.3.9.01")));
+    if (!plug) throw new LedgerError("Conta 2.3.9.01 (contrapartida de saldos de abertura) não existe no plano de contas");
+    lines.push(diff > 0 ? { accountId: plug.id, credit: diff, memo: "Diferença dos saldos de abertura" } : { accountId: plug.id, debit: -diff, memo: "Diferença dos saldos de abertura" });
+  }
+  return postEntry(tx, ctx, {
+    companyId,
+    entryDate: data.entryDate,
+    memo: "Saldos de abertura",
+    source: "OPENING",
+    lines: lines.map((l) => ({ ...l, debit: l.debit ? fromCents(l.debit) : undefined, credit: l.credit ? fromCents(l.credit) : undefined })),
   });
 }
 

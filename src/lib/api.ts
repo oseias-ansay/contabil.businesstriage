@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { ZodError, type ZodSchema } from "zod";
 import { getAuth, hasRole, type AuthContext } from "./auth";
 import type { SessionPayload } from "./session";
+import { LedgerError } from "./ledger";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public details?: unknown) {
@@ -36,7 +37,16 @@ export function route<P = Record<string, string>>(handler: Handler<P>, opts: { m
 
 export function handleError(err: unknown) {
   if (err instanceof ApiError) return NextResponse.json({ error: err.message, details: err.details }, { status: err.status });
-  if (err instanceof ZodError) return NextResponse.json({ error: "Dados inválidos", details: err.flatten() }, { status: 422 });
+  if (err instanceof ZodError) {
+    const first = err.issues[0];
+    return NextResponse.json({ error: first ? `${first.path.join(".") || "Dados"}: ${first.message}` : "Dados inválidos", details: err.flatten() }, { status: 422 });
+  }
+  if (err instanceof LedgerError) return NextResponse.json({ error: err.message, details: err.details }, { status: 422 });
+  // Regras contábeis recusadas pelo próprio banco (drizzle/rules.sql) e unicidade
+  const pg = (err as { cause?: { code?: string; message?: string; hint?: string } })?.cause ?? (err as { code?: string; message?: string; hint?: string });
+  if (pg?.code === "P0001") return NextResponse.json({ error: pg.message, hint: pg.hint }, { status: 422 });
+  if (pg?.code === "23505") return NextResponse.json({ error: "Registro duplicado" }, { status: 409 });
+  if (pg?.code === "23514") return NextResponse.json({ error: "Valor fora das regras do registro" }, { status: 422 });
   console.error("[api]", err);
   return NextResponse.json({ error: "Erro interno" }, { status: 500 });
 }
