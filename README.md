@@ -17,7 +17,9 @@ multi-tenant, white-label e deploy isolado. Integra-se ao CRM e à Plataforma po
 
 ---
 
-## Estado atual — Fase 0 (Fundação) concluída
+## Estado atual
+
+### Fase 0 (Fundação) concluída
 
 - **Base comum** reaproveitada do CRM: login, sessão JWT por tenant, esqueci minha senha,
   white-label (logo, favicon, cores, domínio próprio), Admin Global, equipe com papéis.
@@ -43,14 +45,24 @@ multi-tenant, white-label e deploy isolado. Integra-se ao CRM e à Plataforma po
 | Conta movimentada não muda tipo/natureza nem é excluída | trigger no plano de contas |
 | Isolamento entre clientes | Row Level Security com `FORCE` |
 
-Telas desta fase: Painel, Empresas, Plano de contas (árvore com busca), Configurações (marca e
-equipe) e Admin Global.
+### Fase 1 (Núcleo) concluída
+
+Cada empresa tem cinco abas:
+
+| Aba | O que faz |
+|---|---|
+| Lançamentos | lista por mês com busca e partidas expansíveis; novo lançamento com conferência de débitos e créditos em tempo real (e botão para completar a diferença); detalhe com autor e estorno |
+| Relatórios | DRE gerencial (mês a mês, com análise vertical), balanço patrimonial, balancete e razão por conta (sintética soma as subcontas); todos exportam PDF com o aviso informativo |
+| Fechamento | meses com status; conferências antes de fechar (bloqueios e avisos); fechar e reabrir, com auditoria |
+| Plano de contas | árvore com busca; gestor cria subcontas (código automático), renomeia e inativa |
+| Saldos de abertura | informa os saldos patrimoniais no início da escrituração e gera um lançamento; a diferença vai para 2.3.9.01 |
+
+Papéis: operador lança e estorna; gestor também fecha e reabre meses, edita o plano de contas e lança saldos de abertura; leitor só consulta e exporta.
 
 ## Próximas fases
 
 | Fase | Entrega |
 |---|---|
-| 1 · Núcleo | tela de lançamentos e estorno, fechamento mensal com checklist, balancete, razão, DRE e balanço em PDF, edição do plano de contas, saldos de abertura |
 | 2 · Extratos | importação OFX/CSV, regras de classificação, classificação em lote |
 | 3 · Integrações | eventos da Plataforma, webhook do CRM ("cliente contratado" cria a empresa), API de relatórios e `period.closed` |
 | 4 · Evolução | indicadores, comparativos, refinamentos de white-label, avaliação de Open Finance |
@@ -71,14 +83,20 @@ npm run dev                                       # http://localhost:3200
 - Super Admin: `admin@businesstriage.com.br` / `Triage@2026`
 - Outro tenant: `http://localhost:3200/?tenant=demo-cliente` → `dono@demo.com.br` / `Triage@2026`
 
-### Testes das regras contábeis
+### Testes
 
 ```bash
-npm run test:db     # usa o DATABASE_URL do .env; cria e apaga 2 tenants de teste
+npm test                                   # regras do banco (24) + relatórios (8); cria e apaga tenants de teste
+BASE_URL=http://localhost:3200 npm run test:api   # ponta a ponta pela API, com o servidor no ar e o seed carregado
 ```
 
-Os 24 testes tentam, entre outras coisas, gravar lançamento desbalanceado por SQL direto, alterar e
-apagar lançamentos, lançar em mês fechado, em conta sintética e na conta de outro tenant.
+- **Regras:** tentam gravar lançamento desbalanceado por SQL direto, alterar e apagar lançamentos,
+  lançar em mês fechado, em conta sintética e na conta de outro tenant.
+- **Relatórios:** DRE, balanço e razão contra números conferidos à mão.
+- **API:** valores digitados em formato brasileiro ("1.234,56", "R$ 99,90") chegam ao banco exatos,
+  regras devolvem 422 com mensagem clara e os PDFs são gerados.
+
+> Ao refazer o seed com o servidor no ar, espere 1 minuto (cache de tenant) antes de entrar de novo.
 
 ### Alterar o schema
 
@@ -96,11 +114,13 @@ triage-contabil/
 │   └── rules.sql                # regras contábeis em triggers
 ├── deploy/docker/               # install, update, backup, offsite, sync-domains, initdb
 ├── docs/DEPLOY.md               # publicação na VPS
-├── tests/ledger-rules.test.ts   # testes das regras contra Postgres real
+├── tests/                   # regras do banco, relatórios e API ponta a ponta
 └── src/
     ├── db/                      # schema, withTenant/withAdmin/withPurge, migrate, bootstrap, seed
     ├── lib/
-    │   ├── ledger.ts            # empresas, lançamentos, estorno, períodos, balancete, auditoria
+    │   ├── ledger.ts            # empresas, lançamentos, estorno, períodos, fechamento, contas, abertura, balancete
+    │   ├── reports.ts           # razão, DRE gerencial e balanço patrimonial
+    │   ├── pdf.ts               # PDFs dos relatórios (pdfmake)
     │   ├── chart-of-accounts.ts # plano de contas padrão MPE
     │   ├── money.ts             # valores em centavos (nunca float)
     │   └── tenant.ts · auth.ts · session.ts · api.ts …

@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/painel", label: "Painel", icon: Gauge, module: null },
-  { href: "/empresas", label: "Empresas e plano de contas", icon: Landmark, module: "ledger" },
+  { href: "/empresas", label: "Empresas", icon: Landmark, module: "ledger" },
 ] as const;
 
 export function Sidebar({ tenant, isSuperAdmin, canManage }: { tenant: { name: string; logoUrl: string | null; modules: string[] }; isSuperAdmin: boolean; canManage: boolean }) {

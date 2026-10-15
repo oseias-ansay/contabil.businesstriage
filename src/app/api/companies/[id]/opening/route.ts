@@ -5,7 +5,7 @@
 import { and, eq } from "drizzle-orm";
 import { withTenant } from "@/db";
 import { journalEntries } from "@/db/schema";
-import { parseBody, route } from "@/lib/api";
+import { ApiError, route } from "@/lib/api";
 import { openingSchema, postOpeningBalances } from "@/lib/ledger";
 import { ledgerCtx, requireCompany } from "@/lib/company-ctx";
 
@@ -21,10 +21,14 @@ export const GET = route<{ id: string }>(async (_req, { auth, params }) =>
 
 export const POST = route<{ id: string }>(
   async (req, { auth, params }) => {
-    const body = await parseBody(req, openingSchema);
+    // corpo original: os valores viram centavos uma única vez, dentro do serviço
+    const raw = await req.json().catch(() => {
+      throw new ApiError(400, "JSON inválido");
+    });
+    openingSchema.parse(raw);
     return withTenant(auth.tenantId, async (tx) => {
       const co = await requireCompany(tx, params.id);
-      const r = await postOpeningBalances(tx, ledgerCtx(auth), co.id, body);
+      const r = await postOpeningBalances(tx, ledgerCtx(auth), co.id, raw);
       return Response.json(r.entry, { status: 201 });
     });
   },

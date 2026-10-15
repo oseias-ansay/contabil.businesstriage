@@ -5,8 +5,8 @@
 import { and, desc, eq, gte, ilike, inArray, lte, or, sql } from "drizzle-orm";
 import { withTenant } from "@/db";
 import { accounts, journalEntries, journalLines } from "@/db/schema";
-import { ApiError, parseBody, route } from "@/lib/api";
-import { entryInputSchema, postEntry } from "@/lib/ledger";
+import { ApiError, route } from "@/lib/api";
+import { entryInputSchema, postEntry, type EntryInput } from "@/lib/ledger";
 import { ledgerCtx, rangeFrom, requireCompany } from "@/lib/company-ctx";
 
 const PAGE = 50;
@@ -74,12 +74,17 @@ export const GET = route<{ id: string }>(async (req, { auth, params }) => {
 
 export const POST = route<{ id: string }>(
   async (req, { auth, params }) => {
-    const body = await parseBody(req, entryInputSchema.omit({ companyId: true }));
+    // Valida aqui (mensagens de erro), mas repassa o corpo ORIGINAL ao serviço:
+    // os valores viram centavos uma única vez, dentro de postEntry().
+    const raw = (await req.json().catch(() => {
+      throw new ApiError(400, "JSON inválido");
+    })) as EntryInput;
+    const body = entryInputSchema.omit({ companyId: true }).parse(raw);
     return withTenant(auth.tenantId, async (tx) => {
       const co = await requireCompany(tx, params.id);
       if (!co.isActive) throw new ApiError(422, "Empresa inativa: não aceita novos lançamentos");
       if (body.entryDate < co.startDate) throw new ApiError(422, `Data anterior ao início da escrituração (${co.startDate.split("-").reverse().join("/")})`);
-      const r = await postEntry(tx, ledgerCtx(auth), { ...body, companyId: co.id });
+      const r = await postEntry(tx, ledgerCtx(auth), { ...raw, companyId: co.id });
       return Response.json(r.entry, { status: r.duplicate ? 200 : 201 });
     });
   },

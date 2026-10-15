@@ -73,7 +73,7 @@ export default async function PainelPage() {
                   <td className="px-5 py-2">{fmtDate(c.startDate)}</td>
                   <td className="px-5 py-2 text-right tabular-nums">{c.entries}</td>
                   <td className="px-5 py-2">{c.lastEntry ? fmtDate(c.lastEntry) : "—"}</td>
-                  <td className="px-5 py-2 text-right"><Link href={`/empresas/${c.id}`} className="text-xs text-primary hover:underline">Plano de contas</Link></td>
+                  <td className="px-5 py-2 text-right"><Link href={`/empresas/${c.id}`} className="text-xs text-primary hover:underline">Abrir</Link></td>
                 </tr>
               ))}
             </tbody>

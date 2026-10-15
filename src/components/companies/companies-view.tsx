@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { Input, Label, Select } from "@/components/ui/input";
+import { formatDoc } from "@/lib/format";
 
 type Company = {
   id: string; legalName: string; tradeName: string | null; cnpj: string | null; taxRegime: string;
@@ -19,13 +20,6 @@ type Row = { company: Company; accountsCount: number; entriesCount: number };
 
 const REGIMES: Record<string, string> = { SIMPLES: "Simples Nacional", PRESUMIDO: "Lucro Presumido", REAL: "Lucro Real", MEI: "MEI", OUTRO: "Outro" };
 const MONTHS = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
-
-export function formatDoc(d: string | null) {
-  if (!d) return "—";
-  if (d.length === 14) return d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
-  if (d.length === 11) return d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4");
-  return d;
-}
 
 export function CompaniesView({ canEdit }: { canEdit: boolean }) {
   const qc = useQueryClient();

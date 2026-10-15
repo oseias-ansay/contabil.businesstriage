@@ -15,6 +15,7 @@
     "db:studio": "drizzle-kit studio",
     "test:db": "tsx tests/ledger-rules.test.ts",
     "test:reports": "tsx tests/reports.test.ts",
+    "test:api": "tsx tests/api-smoke.test.ts",
     "test": "tsx tests/ledger-rules.test.ts && tsx tests/reports.test.ts"
   },
   "dependencies": {
