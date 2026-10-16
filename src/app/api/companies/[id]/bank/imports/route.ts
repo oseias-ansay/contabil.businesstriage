@@ -1,4 +1,4 @@
-/** POST /api/companies/:id/bank/imports (multipart: file, bankAccountId, mapping?) — importa o extrato. */
+/** POST /api/companies/:id/bank/imports (multipart: file, bankAccountId, mapping?, pdfPassword?) — importa o extrato. */
 import { withTenant } from "@/db";
 import { ApiError, route } from "@/lib/api";
 import { ledgerCtx, requireCompany } from "@/lib/company-ctx";
@@ -7,10 +7,11 @@ import { parseStatement, readStatementForm } from "@/lib/bank/http";
 
 export const POST = route<{ id: string }>(
   async (req, { auth, params }) => {
-    const { file, text, mapping, form } = await readStatementForm(req);
+    const input = await readStatementForm(req);
+    const { file, form } = input;
     const bankAccountId = form.get("bankAccountId");
     if (typeof bankAccountId !== "string" || !/^[0-9a-f-]{36}$/i.test(bankAccountId)) throw new ApiError(422, "Escolha a conta bancária do extrato");
-    const parsed = parseStatement(text, mapping);
+    const parsed = await parseStatement(input);
     return withTenant(auth.tenantId, async (tx) => {
       await requireBankModule(tx, auth.tenantId);
       const co = await requireCompany(tx, params.id);

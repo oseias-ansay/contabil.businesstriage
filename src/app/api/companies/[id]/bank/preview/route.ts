@@ -1,5 +1,5 @@
 /**
- * POST /api/companies/:id/bank/preview (multipart: file, mapping?)
+ * POST /api/companies/:id/bank/preview (multipart: file, mapping?, pdfPassword?)
  * Lê o extrato sem gravar nada: formato, colunas detectadas (CSV), amostra e totais.
  */
 import { withTenant } from "@/db";
@@ -14,8 +14,9 @@ export const POST = route<{ id: string }>(
       await requireBankModule(tx, auth.tenantId);
       await requireCompany(tx, params.id);
     });
-    const { file, text, mapping } = await readStatementForm(req);
-    const r = parseStatement(text, mapping);
+    const input = await readStatementForm(req);
+    const { file, mapping } = input;
+    const r = await parseStatement(input);
     const inflow = r.lines.filter((l) => l.amount > 0).reduce((s, l) => s + l.amount, 0);
     const outflow = r.lines.filter((l) => l.amount < 0).reduce((s, l) => s + l.amount, 0);
     const dates = r.lines.map((l) => l.date).sort();

@@ -385,7 +385,7 @@ function ImportsTab({ companyId, imports, canManage, onChange }: { companyId: st
 
 type Mapping = { delimiter: string; hasHeader: boolean; date: number; description: number; amount?: number; debit?: number; credit?: number; type?: number; document?: number };
 type Preview = {
-  fileName: string; format: "OFX" | "CSV"; warnings: string[]; bank?: { bankId?: string; accountId?: string };
+  fileName: string; format: "OFX" | "CSV" | "PDF"; warnings: string[]; bank?: { bankId?: string; accountId?: string };
   count: number; firstDate: string | null; lastDate: string | null; inflow: number; outflow: number;
   lines: { date: string; amount: number; description: string }[];
   csv: { mapping: Mapping; columns: string[]; sample: string[][] } | null;
@@ -398,6 +398,7 @@ function UploadDialog({ companyId, bankAccounts, lastBankId, onClose, onDone }: 
     (lastBankId && bankAccounts.some((b) => b.id === lastBankId) ? lastBankId : undefined) ?? bankAccounts.find((b) => !/caixa/i.test(b.name))?.id ?? bankAccounts[0]?.id ?? "",
   );
   const [mapping, setMapping] = useState<Mapping | null>(null);
+  const [pdfPassword, setPdfPassword] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -407,6 +408,7 @@ function UploadDialog({ companyId, bankAccounts, lastBankId, onClose, onDone }: 
     const fd = new FormData();
     fd.append("file", f);
     if (m) fd.append("mapping", JSON.stringify(m));
+    if (pdfPassword && /\.pdf$/i.test(f.name)) fd.append("pdfPassword", pdfPassword);
     for (const [k, v] of Object.entries(extra ?? {})) fd.append(k, v);
     return api<unknown>(`/api/companies/${companyId}/bank/${path}`, { method: "POST", body: fd });
   };
@@ -476,10 +478,24 @@ function UploadDialog({ companyId, bankAccounts, lastBankId, onClose, onDone }: 
               <Select className="w-full" value={bank} onChange={(e) => setBank(e.target.value)}>{bankAccounts.map((b) => <option key={b.id} value={b.id}>{b.code} {b.name}</option>)}</Select>
             </div>
             <div>
-              <Label>Arquivo OFX ou CSV (até 5 MB)</Label>
-              <Input type="file" accept=".ofx,.qfx,.csv,.txt" className="pt-2" onChange={(e) => { const f = e.target.files?.[0] ?? null; setFile(f); setMapping(null); setPreview(null); if (f) runPreview(f, null); }} />
+              <Label>Arquivo OFX, CSV ou PDF (até 10 MB)</Label>
+              <Input type="file" accept=".ofx,.qfx,.csv,.txt,.pdf" className="pt-2" onChange={(e) => { const f = e.target.files?.[0] ?? null; setFile(f); setMapping(null); setPreview(null); if (f) runPreview(f, null); }} />
             </div>
           </div>
+
+          {file && /\.pdf$/i.test(file.name) && (
+            <div className="grid gap-2 rounded-lg border bg-slate-50 p-3 text-xs text-slate-600">
+              <p>PDF: a leitura reconhece as colunas pela posição na página. Confira a prévia antes de importar; se algo vier errado, prefira o OFX do mesmo período.</p>
+              <div className="flex flex-wrap items-end gap-2">
+                <div>
+                  <Label>Senha do PDF (se houver)</Label>
+                  <Input type="password" autoComplete="off" value={pdfPassword} onChange={(e) => setPdfPassword(e.target.value)} placeholder="ex.: números do CPF/CNPJ" className="w-56" />
+                </div>
+                <Button variant="outline" disabled={busy} onClick={() => runPreview(file, null)}>Ler de novo</Button>
+              </div>
+              <p className="text-slate-500">A senha só é usada para abrir o arquivo agora; não fica gravada.</p>
+            </div>
+          )}
 
           {preview?.csv && mapping && (
             <fieldset className="grid gap-3 rounded-lg border p-3">

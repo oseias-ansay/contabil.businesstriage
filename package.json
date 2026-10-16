@@ -17,8 +17,9 @@
     "test:reports": "tsx tests/reports.test.ts",
     "test:api": "tsx tests/api-smoke.test.ts",
     "test:parse": "tsx tests/bank-parse.test.ts",
+    "test:pdf": "tsx tests/bank-pdf.test.ts",
     "test:bank": "tsx tests/bank.test.ts",
-    "test": "tsx tests/bank-parse.test.ts && tsx tests/ledger-rules.test.ts && tsx tests/reports.test.ts && tsx tests/bank.test.ts"
+    "test": "tsx tests/bank-parse.test.ts && tsx tests/bank-pdf.test.ts && tsx tests/ledger-rules.test.ts && tsx tests/reports.test.ts && tsx tests/bank.test.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.4",
@@ -34,6 +35,7 @@
     "lucide-react": "^0.468.0",
     "next": "15.5.27",
     "nodemailer": "^6.9.16",
+    "pdfjs-dist": "^4.10.38",
     "pdfmake": "^0.2.23",
     "pg": "^8.23.1",
     "react": "19.0.0",

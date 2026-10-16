@@ -106,6 +106,23 @@ async function main() {
     assert.equal(b.body.new, 0);
     assert.equal(b.body.duplicates, a.body.new + a.body.duplicates);
   });
+  await test("extrato em PDF: prévia e importação sem duplicar", async () => {
+    const send = async (path: string) => {
+      const fd = new FormData();
+      fd.append("file", new Blob([readFileSync("docs/exemplos/extrato-exemplo-abr2026.pdf")]), "extrato-exemplo-abr2026.pdf");
+      fd.append("bankAccountId", id("1.1.1.02"));
+      const res = await fetch(`${BASE}/api/companies/${co}/bank/${path}`, { method: "POST", body: fd, headers: { cookie } });
+      return { status: res.status, body: (await res.json()) as { format: string; count: number; inflow: number; outflow: number; new: number; duplicates: number } };
+    };
+    const p = await send("preview");
+    assert.equal(p.status, 200, JSON.stringify(p.body));
+    assert.deepEqual([p.body.format, p.body.count, p.body.inflow, p.body.outflow], ["PDF", 8, 432030, -467097]);
+    const a = await send("imports");
+    assert.equal(a.status, 201, JSON.stringify(a.body));
+    const b = await send("imports");
+    assert.equal(b.body.new, 0);
+    assert.equal(b.body.duplicates, 8);
+  });
   await test("regra classifica e o lote lança, com resposta por movimento", async () => {
     const r = await call(`/api/companies/${co}/bank/rules`, { json: { pattern: "tarifa servicos", direction: "OUT", accountId: id("4.4.1.02") } });
     assert.equal(r.status, 201, JSON.stringify(r.body));

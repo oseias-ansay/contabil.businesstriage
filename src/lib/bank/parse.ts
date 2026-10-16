@@ -22,7 +22,7 @@ export type ParsedLine = {
 };
 
 export type ParseResult = {
-  format: "OFX" | "CSV";
+  format: "OFX" | "CSV" | "PDF";
   lines: ParsedLine[];
   warnings: string[];
   bank?: { bankId?: string; accountId?: string; currency?: string };
