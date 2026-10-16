@@ -65,6 +65,11 @@ Aba **Extratos** em cada empresa (planos com o módulo “Importação de extrat
 
 - **Importar** OFX (1.x e 2.x, UTF-8 ou Windows-1252) e CSV/TXT de qualquer banco: separador, colunas,
   datas e valores no formato brasileiro são detectados sozinhos, com prévia e ajuste manual das colunas.
+- **PDF** gerado pelo internet banking: as colunas são reconhecidas pela posição na página (cabeçalho
+  Data · Histórico · Valor/Débito/Crédito · Saldo, ou pela posição dos números quando não há cabeçalho).
+  Aceita data só no primeiro movimento do dia, histórico em duas linhas, datas por extenso ("02 MAR 2026")
+  e PDF com senha (a senha não é gravada). O sinal vem da coluna, do próprio número ("-", "D/C"), da
+  variação do saldo ou dos blocos "Total de entradas/saídas". PDF digitalizado (imagem) é recusado com orientação.
 - **Sem duplicar:** reimportar um período sobreposto traz só os movimentos novos.
 - **Sugestão de conta:** por **regras** (“o histórico contém estas palavras” → conta, só entradas/saídas,
   por banco, com prioridade) e pelo **histórico** (o mesmo pagador ou fornecedor, com outro número de PIX,
@@ -75,7 +80,7 @@ Aba **Extratos** em cada empresa (planos com o módulo “Importação de extrat
 - O **fechamento** avisa quando há movimentos do mês sem lançar.
 - O banco recusa alterar data, valor e histórico de um movimento e apagar movimento já lançado.
 
-Arquivos de exemplo para testar: `docs/exemplos/extrato-exemplo-fev2026.ofx` e `extrato-exemplo-mar2026.csv`.
+Arquivos de exemplo para testar: `docs/exemplos/extrato-exemplo-fev2026.ofx`, `extrato-exemplo-mar2026.csv` e `extrato-exemplo-abr2026.pdf`.
 
 ## Próximas fases
 
@@ -103,7 +108,7 @@ npm run dev                                       # http://localhost:3200
 ### Testes
 
 ```bash
-npm test                                   # leitores de extrato (10) + regras do banco (24) + relatórios (8) + extratos (22)
+npm test                                   # leitores de extrato (10) + PDF (11) + regras do banco (24) + relatórios (8) + extratos (22)
 BASE_URL=http://localhost:3200 npm run test:api   # ponta a ponta pela API, com o servidor no ar e o seed carregado
 ```
 
@@ -138,7 +143,7 @@ triage-contabil/
     │   ├── ledger.ts            # empresas, lançamentos, estorno, períodos, fechamento, contas, abertura, balancete
     │   ├── reports.ts           # razão, DRE gerencial e balanço patrimonial
     │   ├── pdf.ts               # PDFs dos relatórios (pdfmake)
-    │   ├── bank/                # leitura de OFX/CSV, importação, regras e lançamento de extratos
+    │   ├── bank/                # leitura de OFX/CSV/PDF, importação, regras e lançamento de extratos
     │   ├── chart-of-accounts.ts # plano de contas padrão MPE
     │   ├── money.ts             # valores em centavos (nunca float)
     │   └── tenant.ts · auth.ts · session.ts · api.ts …
